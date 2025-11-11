@@ -14,9 +14,6 @@ usethis::edit_r_environ()
 ```{r}
 osf_auth()
 ```
-```{r}
-Sys.getenv("OSF_PAT")
-```
 
 
 

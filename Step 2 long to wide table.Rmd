@@ -1,0 +1,153 @@
+---
+title: "Step 2 – from long to wide table"
+author: "Pascale Maas"
+output: html_notebook
+---
+
+Global settings 
+```{r}
+## Optional: clear environment *only if desired*
+rm(list = ls())
+
+## Set global options for knitting / notebook output
+knitr::opts_chunk$set(
+  fig.width = 12,    # Default figure width
+  fig.height = 8,    # Default figure height
+  warning = FALSE,   # Hide warnings in the rendered document
+  message = FALSE,   # Hide messages (e.g., package load messages)
+  echo = TRUE        # Show code by default (can turn off per chunk)
+)
+
+## set a consistent theme or seed
+set.seed(123)        # Ensures reproducible random results
+
+```
+
+Download packages 
+```{r packages, message=FALSE}
+# Vector of required packages
+req_pkgs <- c(
+  "osfr", "readr", "dplyr", "stringr",
+  "tidyr", "lubridate", "DT", "janitor", "tidyverse"
+)
+
+# Install any that are missing
+need <- setdiff(req_pkgs, rownames(installed.packages()))
+if (length(need)) {
+  install.packages(need)  # optionally add repos = "https://cloud.r-project.org"
+}
+
+# Load them quietly
+suppressPackageStartupMessages({
+  lapply(req_pkgs, require, character.only = TRUE)
+})
+
+```
+ 
+Authentication and configuration
+```{r authentification and configuration}
+osf_auth()
+
+RAW_NODE_ID       <- "m6ub4"           # e.g., https://osf.io/m6ub4/
+PROCESSED_NODE_ID <- "m6ub4"           # e.g., https://osf.io/m6ub4/
+CSV_PATTERN        <- "zotero_annotations_long.csv"   # exact filename 
+
+```
+
+Local Temp Folder
+```{r temp folder}
+
+tdir <- tempdir()
+raw_data_dir <- file.path(tdir, "raw_data")
+processed_data_dir <- file.path(tdir, "processed_data")
+dir.create(raw_data_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(processed_data_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+Download CSV
+```{r}
+osf_retrieve_node(PROCESSED_NODE_ID) %>%
+  osf_ls_files(pattern = CSV_PATTERN) %>%
+  osf_download(path = raw_data_dir, conflicts = "overwrite")
+```
+
+Load CSV 
+```{r}
+csv_file <- list.files(path = raw_data_dir, pattern = "\\.csv$", full.names = TRUE)
+zotero_data <- read.csv(csv_file[1])
+head(zotero_data)
+```
+Transform long to wide table
+```{r transform}
+zotero_annotations_wide <- zotero_data %>%
+  dplyr::group_by(title, author, tag) %>%
+  dplyr::summarise(
+    annotation = if (dplyr::n() == 1) annotation
+                 else paste0('"', paste(unique(na.omit(annotation)), collapse = '" "'), '"'),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_wider(
+    id_cols    = c(title, author),
+    names_from = tag,
+    values_from = annotation
+  ) %>%
+  dplyr::select(title, author, dplyr::everything())
+
+# (Optional) keep df_wide for compatibility with earlier chunks
+df_wide <- zotero_annotations_wide
+
+# Quick summary
+cat("Rows:", nrow(zotero_annotations_wide), " | Columns:", ncol(zotero_annotations_wide), "\n")
+
+# Peek at the data
+print(head(zotero_annotations_wide, 5))
+
+# RStudio data viewer
+View(zotero_annotations_wide)
+```
+
+Upload to OSF
+```{r upload_wide_to_osf, message=FALSE}
+
+# Ensure the wide dataframe exists
+stopifnot(exists("zotero_annotations_wide"))
+
+# Keep your preferred column order
+df_wide <- zotero_annotations_wide %>%
+  dplyr::select(title, author, dplyr::everything())
+
+# Write to a temporary CSV file for upload
+out_csv <- file.path(tempdir(), "zotero_annotations_wide.csv")
+readr::write_csv(df_wide, out_csv)
+
+# Connect to your OSF project/component
+processed_node <- osf_retrieve_node(PROCESSED_NODE_ID)
+
+# Upload and overwrite the previous version if it exists
+uploaded <- osf_upload(
+  processed_node,
+  path = out_csv,
+  conflicts = "overwrite"
+)
+
+# Confirm upload
+print(uploaded)
+cat("✅ Uploaded to node", PROCESSED_NODE_ID, "as:", basename(out_csv), "\n")
+``` 
+
+```{r cleanup-temp, message=FALSE}
+
+clean_project_temp <- function() {
+  unlink(c(raw_data_dir, processed_data_dir), recursive = TRUE, force = TRUE)
+}
+# call when done:
+clean_project_temp()
+
+```
+
+
+
+
+
+
+

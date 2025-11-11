@@ -43,13 +43,14 @@ suppressPackageStartupMessages({
 })
 
 ```
-
+ 
+Authentication and configuration
 ```{r authentification and configuration}
 osf_auth()
 
 RAW_NODE_ID       <- "m6ub4"           # e.g., https://osf.io/m6ub4/
-PROCESSED_NODE_ID <- "m6ub4"           # 
-MD_PATTERN        <- "2025-11-09 12:23 Details by Tag (Text Annotations Only).md"   # exact filename or a unique pattern
+PROCESSED_NODE_ID <- "m6ub4"           # e.g., https://osf.io/m6ub4/
+MD_PATTERN        <- "2025-11-09 12:23 Details by Tag (Text Annotations Only).md"   # exact filename 
 
 ```
 
@@ -107,7 +108,7 @@ cat("Loaded Markdown file:", selected_md_file, "\n")
 
 
 
-```{r r parse_and_show_md, message=FALSE}
+```{r parse_and_show_md, message=FALSE}
 
 # Safe null-coalescing for base R
 `%||%` <- function(a, b) if (!is.null(a) && !is.na(a) && a != "") a else b
@@ -214,19 +215,6 @@ if (!is.null(unparsed) && length(unparsed)) {
 View(df_annotations)
 
 ```
-
-
-
-```{r tag_counts}
-
-tag_counts <- df_annotations %>%
-  mutate(tag = ifelse(is.na(tag) | tag == "", "NoTag", tag)) %>%
-  count(tag, sort = TRUE, name = "frequency")
-
-View(tag_counts)   # or: print(tag_counts)
-
-```
-
 
 
 ```{r upload_long_to_osf, message=FALSE}
