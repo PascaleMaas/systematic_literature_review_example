@@ -1,0 +1,25 @@
+---
+title: "Connecting R to OSF for Direct Data Analysis"
+output: html_notebook
+---
+
+```{r install}
+install.packages("osfr")
+library(osfr)
+```
+```{r Renviron}
+usethis::edit_r_environ()
+```
+
+```{r}
+osf_auth()
+```
+```{r}
+Sys.getenv("OSF_PAT")
+```
+
+
+
+
+
+

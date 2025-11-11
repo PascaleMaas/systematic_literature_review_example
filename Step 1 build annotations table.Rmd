@@ -1,0 +1,266 @@
+---
+title: "Step 1 – Build annotations table"
+author: "Pascale Maas"
+output: html_notebook
+---
+
+Global settings 
+```{r}
+## Optional: clear environment *only if desired*
+rm(list = ls())
+
+## Set global options for knitting / notebook output
+knitr::opts_chunk$set(
+  fig.width = 12,    # Default figure width
+  fig.height = 8,    # Default figure height
+  warning = FALSE,   # Hide warnings in the rendered document
+  message = FALSE,   # Hide messages (e.g., package load messages)
+  echo = TRUE        # Show code by default (can turn off per chunk)
+)
+
+## set a consistent theme or seed
+set.seed(123)        # Ensures reproducible random results
+
+```
+
+Download packages 
+```{r packages, message=FALSE}
+# Vector of required packages
+req_pkgs <- c(
+  "osfr", "readr", "dplyr", "stringr",
+  "tidyr", "lubridate", "DT"
+)
+
+# Install any that are missing
+need <- setdiff(req_pkgs, rownames(installed.packages()))
+if (length(need)) {
+  install.packages(need)  # optionally add repos = "https://cloud.r-project.org"
+}
+
+# Load with quiet messages
+suppressPackageStartupMessages({
+  lapply(req_pkgs, require, character.only = TRUE)
+})
+
+```
+
+```{r authentification and configuration}
+osf_auth()
+
+RAW_NODE_ID       <- "m6ub4"           # e.g., https://osf.io/m6ub4/
+PROCESSED_NODE_ID <- "m6ub4"           # 
+MD_PATTERN        <- "2025-11-09 12:23 Details by Tag (Text Annotations Only).md"   # exact filename or a unique pattern
+
+```
+
+Local Temp Folder
+```{r temp folder}
+
+tdir <- tempdir()
+raw_data_dir <- file.path(tdir, "raw_data")
+processed_data_dir <- file.path(tdir, "processed_data")
+dir.create(raw_data_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(processed_data_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+Download MD file
+```{r}
+
+raw_node <- osf_retrieve_node(RAW_NODE_ID)
+
+files_tbl <- osf_ls_files(raw_node, pattern = MD_PATTERN)
+if (nrow(files_tbl) == 0) stop("No file found on OSF matching pattern: ", MD_PATTERN)
+
+dl <- osf_download(
+  files_tbl[1, ],
+  path = raw_data_dir,
+  conflicts = "overwrite",
+  progress = TRUE
+)
+md_local <- dl$local_path
+cat("Downloaded:", md_local, "\n")
+```
+
+Load the MD file
+```{r list md files}
+# List .md files in the raw_data_dir
+md_files <- list.files(path = raw_data_dir, pattern = "\\.md$", full.names = TRUE)
+
+if (length(md_files) == 0) {
+  stop("No Markdown (.md) files found in: ", raw_data_dir)
+}
+
+# If you expect a specific file, filter here; otherwise take the first
+# Example: pick a specific pattern
+# md_files <- md_files[grepl("16\\.09\\.2025\\.md$", basename(md_files))]
+# if (length(md_files) == 0) stop("Expected MD file not found by pattern.")
+
+selected_md_file <- md_files[1]
+
+# Read the file
+md_lines <- readLines(selected_md_file, encoding = "UTF-8", warn = FALSE)
+if (length(md_lines) == 0) stop("The Markdown file is empty: ", selected_md_file)
+
+cat("Loaded Markdown file:", selected_md_file, "\n")
+
+```
+
+
+
+```{r r parse_and_show_md, message=FALSE}
+
+# Safe null-coalescing for base R
+`%||%` <- function(a, b) if (!is.null(a) && !is.na(a) && a != "") a else b
+
+# ---------- parser ----------
+parse_zotero_md <- function(md_lines) {
+  tag_pattern <- "^###\\s*Tag:\\s*(.+)\\s*$"
+  first_tag_idx <- which(stringr::str_detect(md_lines, tag_pattern))[1]
+  if (!is.na(first_tag_idx)) md_lines <- md_lines[first_tag_idx:length(md_lines)]
+
+  # Metadata regex (non-greedy on Annotation; accepts Date but we'll ignore it)
+  meta_regex <- paste0(
+    "^\\*\\*Page:\\*\\*\\s*([^|]+?)\\s*\\|\\s*",
+    "\\*\\*Comment:\\*\\*\\s*([^|]*)\\s*\\|\\s*",
+    "\\*\\*Annotation:\\*\\*\\s*(.*?)\\s*\\|\\s*",
+    "\\*\\*Author:\\*\\*\\s*([^|]*)\\s*\\|\\s*",
+    "\\*\\*Date:\\*\\*\\s*(?:\\(([^)]*)\\)|([^|]*))\\s*\\|\\s*",
+    "\\*\\*Title:\\*\\*\\s*(.*)\\s*$"
+  )
+
+  current_tag <- NA_character_
+  out <- vector("list", length(md_lines))
+  warn_lines <- character(0)
+  j <- 0L
+
+  for (ln in md_lines) {
+    # Update current tag
+    if (stringr::str_detect(ln, tag_pattern)) {
+      current_tag <- stringr::str_match(ln, tag_pattern)[,2]
+      next
+    }
+
+    # Try to match metadata
+    m <- stringr::str_match(ln, meta_regex)
+    if (!all(is.na(m))) {
+      j <- j + 1L
+      ann <- stringr::str_trim(m[,4] %||% "")
+      ann <- stringr::str_replace(ann, '^"(.*)"$', "\\1")  # strip outer quotes if present
+
+      out[[j]] <- tibble::tibble(
+        tag        = ifelse(is.na(current_tag) || current_tag == "", "NoTag", current_tag),
+        page_raw   = stringr::str_trim(m[,2]),
+        comment    = stringr::str_trim(m[,3]),
+        annotation = stringr::str_trim(ann),
+        author     = stringr::str_trim(m[,5]),
+        title      = stringr::str_trim(m[,8])
+      )
+    } else {
+      if (stringr::str_trim(ln) != "" && !stringr::str_starts(ln, "#")) warn_lines <- c(warn_lines, ln)
+    }
+  }
+
+  df <- dplyr::bind_rows(out[seq_len(j)]) %>%
+    dplyr::mutate(
+      page       = suppressWarnings(as.integer(stringr::str_extract(page_raw, "\\d+"))),
+      comment    = ifelse(comment == "", "No Comment", comment),
+      annotation = ifelse(annotation == "", "No Annotation", annotation),
+      author     = ifelse(author == "", "Unknown Author", author)
+    ) %>%
+    dplyr::select(tag, annotation, comment, page, title, author)
+
+  attr(df, "unparsed_lines") <- warn_lines
+  df
+}
+
+# ---------- run ----------
+df_annotations <- parse_zotero_md(md_lines)
+
+# ---------- show: quick summaries ----------
+cat("# Rows:", nrow(df_annotations), " | # Tags:", dplyr::n_distinct(df_annotations$tag), "\n\n")
+
+# Top tags by count
+df_tag_counts <- df_annotations %>%
+  dplyr::count(tag, sort = TRUE)
+
+DT::datatable(
+  df_tag_counts,
+  options = list(pageLength = 10, dom = "tip"),
+  caption = "Counts per tag"
+)
+
+# ---------- show: the annotations table (now in your requested order) ----------
+DT::datatable(
+  df_annotations,
+  extensions = "Scroller",
+  options = list(
+    deferRender = TRUE,
+    scrollY = 400,
+    scroller = TRUE,
+    scrollX = TRUE,
+    pageLength = 25
+  ),
+  caption = "Zotero annotations parsed from Markdown"
+)
+
+# ---------- show: any parsing issues inline (no files written) ----------
+unparsed <- attr(df_annotations, "unparsed_lines")
+if (!is.null(unparsed) && length(unparsed)) {
+  cat("⚠ Lines that did not match the expected pattern (showing up to 10):\n")
+  cat(paste0(" - ", head(unparsed, 10)), sep = "\n")
+}
+
+# ---------- open in RStudio's data viewer ----------
+View(df_annotations)
+
+```
+
+
+
+```{r tag_counts}
+
+tag_counts <- df_annotations %>%
+  mutate(tag = ifelse(is.na(tag) | tag == "", "NoTag", tag)) %>%
+  count(tag, sort = TRUE, name = "frequency")
+
+View(tag_counts)   # or: print(tag_counts)
+
+```
+
+
+
+```{r upload_long_to_osf, message=FALSE}
+
+stopifnot(exists("df_annotations"))
+
+# keep your column order
+df_long <- df_annotations %>% 
+  select(tag, annotation, comment, page, title, author)
+
+# write to a temp CSV (only for upload)
+out_csv <- file.path(tempdir(), "zotero_annotations_long.csv")
+readr::write_csv(df_long, out_csv)
+
+# upload to OSF project/component root and overwrite if present
+processed_node <- osf_retrieve_node(PROCESSED_NODE_ID)
+uploaded <- osf_upload(
+  processed_node,
+  path = out_csv,            # <-- singular
+  conflicts = "overwrite"
+)
+
+print(uploaded)
+cat("Uploaded to node", PROCESSED_NODE_ID, ":", basename(out_csv), "\n")
+
+```
+
+```{r cleanup-temp, message=FALSE}
+
+clean_project_temp <- function() {
+  unlink(c(raw_data_dir, processed_data_dir), recursive = TRUE, force = TRUE)
+}
+# call when done:
+clean_project_temp()
+
+```
+
