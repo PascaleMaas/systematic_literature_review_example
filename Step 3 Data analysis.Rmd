@@ -1,0 +1,1125 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+########### bibliometric data direct from Zotero #################
+
+
+```{r import}
+
+df <- read.csv("~/Desktop/Bibliometric_data.csv", stringsAsFactors = FALSE)
+
+```
+
+
+```{r}
+df_included <- df[ !is.na(df$Manual.Tag) &
+                     grepl("included", df$Manual.Tag, ignore.case = TRUE), ]
+
+nrow(df_included)
+```
+
+
+```{r}
+df_included$Publication.Year <- as.integer(df_included$Publication.Year)
+year_counts <- table(df_included$Publication.Year)
+
+# Forceer numerieke volgorde van de jaartallen
+year_counts <- year_counts[order(as.integer(names(year_counts)))]
+
+print(year_counts)
+sum(year_counts)
+
+
+```
+```{r}
+# Extract correct x and y
+years  <- as.integer(names(year_counts))
+counts <- as.integer(year_counts)
+
+# Plot zonder automatische x-as
+plot(years, counts,
+     type = "l",
+     xaxt = "n",
+     xlab = "Publication Year",
+     ylab = "Number of included records",
+     main = "Included publications per year")
+
+# Zet expliciet de jaartallen op de x-as
+axis(1, at = years, labels = years)
+
+# Optioneel: punten op de lijn
+points(years, counts)
+
+
+```
+
+```{r}
+# Staafdiagram maken
+barplot(year_counts,
+        xlab = "Publication Year",
+        ylab = "Number of included records",
+        main = "Included publications per year",
+        las = 2)   # jaartallen verticaal voor leesbaarheid
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r plot}
+
+# Targets (use your cleaned vector from earlier)
+target_tags <- c(
+  "01042024_proquest_(Art-based OR Artistic) AND (sustainability education OR environmental education OR transformative learning) AND (management education OR business education)",
+  "01042024_webofscience_art-based_OR_artistic_AND_sustainability_education_OR_Transformative_learning_OR_environmental_education_AND_management_education_OR_business_education",
+  "10072025_ScienceDirect_arts-based_learning_management_50",
+  "10072025_ScienceDirect_artthinking_education_business_25",
+  "10072025_ScienceDirect_business education OR management education OR leadership AND (sculpture OR paint OR Cinema OR Photography)_25",
+  "10072025_ScienceDirect_citations_business education OR management education OR leadership AND (dance OR poetry OR music OR theatre)_25",
+  "10072025_scopus_art thinking AND management AND higher education_27",
+  "10072025_scopus_management education AND arts-based AND business_15",
+  "010402024_taylorandfrancis_(Art-based OR Artistic) AND (sustainability education OR environmental education OR transformative learning) AND (management education OR business education)",
+  "11072025_scopus_management AND arts-based AND business_30",
+  "11072025_scopus_management AND education AND business AND ( painting OR sculpture OR cinema OR photography)_14",
+  "11072025_scopus_management education AND business AND (dance OR poetry OR music OR theatre)_50",
+  "20241216_ERIC_art_education_sustainability_PM",
+  "20250202_sciencedirect_leadership_highereducation_art-based_researcharticles_19_97",
+  "20250302_sciencedirect_business_artistic_learning_management_37_100",
+  "20250302_ScienceDirect_entrepreneurship_education_art-based_16_78",
+  "other_source"
+)
+
+# Normalize Manual.Tags text
+tags_text <- df$Manual.Tags
+tags_text <- ifelse(is.na(tags_text), "", tags_text)
+tags_text <- gsub('"', "", tags_text, fixed = TRUE)
+tags_text <- trimws(tags_text)
+
+# Count occurrences (one row counts once per tag if it contains that tag)
+counts <- sapply(target_tags, function(tag) sum(grepl(tag, tags_text, fixed = TRUE)))
+
+tag_counts <- data.frame(Manual.Tag = target_tags, Count = as.integer(counts))
+tag_counts <- tag_counts[order(tag_counts$Count, decreasing = TRUE), ]
+
+print(tag_counts)
+
+ 
+```
+
+```{r}
+
+# Tellingen per tag (zoals eerder)
+counts <- sapply(target_tags, function(tag) {
+  sum(grepl(tag, tags_text, fixed = TRUE))
+})
+
+tag_counts <- data.frame(
+  Manual.Tag = target_tags,
+  Count = as.integer(counts),
+  row.names = NULL
+)
+
+# Sorteer optioneel
+tag_counts <- tag_counts[order(tag_counts$Count, decreasing = TRUE), ]
+
+print(tag_counts)
+
+# ---- TOTAAL ----
+total_count <- sum(tag_counts$Count)
+total_count
+
+
+```
+############### annotations data ##################
+
+```{r}
+df_annotations <- read.csv("~/Desktop/zotero_annotations_wide.csv", stringsAsFactors = FALSE)
+```
+
+
+```{r}
+# Define the columns of interest
+cols <- c("arts.based", "arts.informed", "arts.related", "intergration._unclear")
+
+# Ensure we are only checking those columns
+sub <- df_annotations[, cols]
+
+# Logical matrix: TRUE if cell is not NA and not empty
+non_na <- !is.na(sub) & sub != ""
+
+# Count how many categories are filled per row
+n_filled <- rowSums(non_na)
+
+# Initialize classification
+classification <- rep(NA_character_, nrow(df_annotations))
+
+# Exactly one filled → that category
+classification[n_filled == 1] <- cols[apply(non_na[n_filled == 1, ], 1, which)]
+
+# More than one filled → mixed
+classification[n_filled > 1] <- "mixed"
+
+# Create result table
+result_counts <- table(classification, useNA = "no")
+
+print(result_counts)
+
+# Count table per category
+count_table <- as.data.frame(table(classification, useNA = "no"))
+
+colnames(count_table) <- c("Category", "Count")
+
+count_table
+```
+
+
+
+```{r text extraction}
+# Define columns of interest (use the exact names as in your dataframe)
+cols <- c("arts.based", "arts.informed", "arts.related", "intergration._unclear")
+
+# Build the table
+result_table <- data.frame(
+  title = df_annotations$title,
+  df_annotations[, cols],
+  stringsAsFactors = FALSE
+)
+
+# Optional: clean empty strings to NA (recommended)
+for (col in cols) {
+  result_table[[col]][trimws(result_table[[col]]) == ""] <- NA
+}
+
+# View result
+result_table
+
+```
+```{r}
+write.csv(result_table, "~/Desktop/arts_integration_by_paper.csv", row.names = FALSE)
+
+```
+
+
+```{r HE of BC}
+# TRUE als er echte tekst staat (niet NA, niet leeg, geen alleen-spaties)
+has_business <- !is.na(df_annotations$business._context) &
+  nchar(trimws(df_annotations$business._context)) > 0
+
+has_higher <- !is.na(df_annotations$higher._education) &
+  nchar(trimws(df_annotations$higher._education)) > 0
+
+# Aantallen
+n_business <- sum(has_business)
+n_higher   <- sum(has_higher)
+n_both     <- sum(has_business & has_higher)
+
+# Overzichtstabel
+context_counts <- data.frame(
+  Context = c("business_context", "higher_education", "mixed"),
+  Count   = c(n_business, n_higher, n_both)
+)
+
+context_counts
+
+```
+
+```{r}
+library(ggplot2)
+
+# 1) Detecteer of er tekst staat
+has_business <- !is.na(df_annotations$business._context) &
+  nchar(trimws(df_annotations$business._context)) > 0
+
+has_higher <- !is.na(df_annotations$higher._education) &
+  nchar(trimws(df_annotations$higher._education)) > 0
+
+# 2) Aantallen
+n_business <- sum(has_business & !has_higher)
+n_higher   <- sum(!has_business & has_higher)
+n_mixed    <- sum(has_business & has_higher)
+
+n_total <- sum(has_business | has_higher)
+
+# 3) Dataframe voor stacked bar
+plot_df <- data.frame(
+  Label = c("Business", "Higher Education"),
+  Count = c(n_business + n_mixed, n_higher + n_mixed)
+)
+
+# 4) Esthetische plot (typografie verfijnd)
+ggplot(plot_df, aes(x = "Total studies", y = Count, fill = Label)) +
+  geom_col(width = 0.55) +
+  geom_text(
+    aes(label = paste0(Label, "\n", Count)),
+    position = position_stack(vjust = 0.5),
+    color = "white",
+    size = 4.6,
+    fontface = "plain"   
+  ) +
+  labs(
+    title = "Context of studies",
+    subtitle = paste0("Total studies: ", n_total),
+    x = NULL,
+    y = "Number of studies"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Business" = "#3B6FB6",          # zachter blauw
+      "Higher Education" = "#4FA27A"   # zachter groen
+    )
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(
+      face = "plain",
+      size = 18,
+      margin = margin(b = 6)
+    ),
+    plot.subtitle = element_text(
+      size = 13,
+      color = "grey30",
+      margin = margin(b = 12)
+    ),
+    axis.title.y = element_text(size = 13),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+```
+
+
+```{r}
+# Locatiekolommen (exact zoals jij ze gaf)
+loc_cols <- c(
+  "location._europe",
+  "location._nordamerica",
+  "location._europe._secundary",
+  "location._asia",
+  "location._online",
+  "location._australia",
+  "location._southamerica._secundary",
+  "location._nordamerica._secundary",
+  "location._africa",
+  "location._southamerica"
+)
+
+# Subset
+sub_loc <- df_annotations[, loc_cols, drop = FALSE]
+
+# TRUE als cel gevuld is (niet NA, niet leeg/spaties)
+filled <- !is.na(sub_loc) & nchar(trimws(as.character(as.matrix(sub_loc)))) > 0
+filled <- matrix(filled, nrow = nrow(df_annotations), dimnames = list(NULL, loc_cols))
+
+# Aantal gevulde locatievelden per rij
+n_filled <- rowSums(filled)
+
+# Per rij: welke locatievelden zijn gevuld (voor controle/mixed)
+filled_fields <- apply(filled, 1, function(x) paste(names(x)[x], collapse = "; "))
+
+# Classificatie
+location_class <- rep(NA_character_, nrow(df_annotations))
+location_class[n_filled == 0] <- "missing"
+location_class[n_filled > 1]  <- "mixed"
+location_class[n_filled == 1] <- loc_cols[apply(filled[n_filled == 1, , drop = FALSE], 1, which)]
+
+# Rij-level tabel met titles
+location_table <- data.frame(
+  title = df_annotations$title,
+  location_category = location_class,
+  filled_location_fields = ifelse(n_filled > 0, filled_fields, NA),
+  stringsAsFactors = FALSE
+)
+
+# Tellingen per categorie
+location_counts <- as.data.frame(table(location_table$location_category))
+colnames(location_counts) <- c("LocationCategory", "Count")
+
+# Output
+location_counts
+
+
+```
+```{r missing titles}
+# missing titles
+missing_titles_df <- data.frame(
+  title = df_annotations$title[n_filled == 0],
+  stringsAsFactors = FALSE
+)
+
+missing_titles_df
+```
+
+```{r}
+# -----------------------------------------
+# Taartdiagram van locaties
+# -----------------------------------------
+
+# Herkodeer locatiecategorieën naar hoofdregio's
+location_group <- location_table$location_category
+
+location_group[location_group %in% c(
+  "location._europe",
+  "location._europe._secundary"
+)] <- "Europe"
+
+location_group[location_group %in% c(
+  "location._nordamerica",
+  "location._nordamerica._secundary"
+)] <- "North America"
+
+location_group[location_group == "location._asia"]       <- "Asia"
+location_group[location_group == "location._online"]     <- "Online"
+location_group[location_group == "location._australia"]  <- "Australia"
+location_group[location_group == "location._africa"]     <- "Africa"
+
+location_group[location_group %in% c(
+  "location._southamerica",
+  "location._southamerica._secundary"
+)] <- "South America"
+
+# Mixed behouden, missing uitsluiten
+location_group <- location_group[location_group != "missing"]
+
+# Telling per regio
+region_counts <- table(location_group)
+
+# Taartdiagram met percentages (zonder missing)
+pie(
+  region_counts,
+  labels = paste0(
+    names(region_counts),
+    " (", round(100 * region_counts / sum(region_counts), 1), "%)"
+  ),
+  main = "Geographical focus of included studies",
+  cex = 0.8
+)
+
+```
+
+
+
+
+```{r}
+library(ggplot2)
+
+# -----------------------------------------
+# Art forms: detectie + classificatie
+# form._open toegevoegd
+# Diverse + Mixed samen
+# Missing niet in figuur, titles wel tonen
+# + Kleuren terug (fill = Form)
+# -----------------------------------------
+
+form_cols <- c(
+  "form._visual",
+  "form._theatre",
+  "form._diverse",
+  "form._music",
+  "form._multimedia",
+  "form._narrative",
+  "form._open"
+)
+
+# Subset
+sub_form <- df_annotations[, form_cols, drop = FALSE]
+
+# TRUE als cel gevuld is (niet NA, niet leeg/spaties)
+filled <- !is.na(sub_form) & nchar(trimws(as.character(as.matrix(sub_form)))) > 0
+filled <- matrix(filled, nrow = nrow(df_annotations), dimnames = list(NULL, form_cols))
+
+# Aantal gevulde vormen per rij
+n_filled <- rowSums(filled)
+
+# Classificatie per rij
+form_class <- rep(NA_character_, nrow(df_annotations))
+form_class[n_filled == 0] <- "missing"
+form_class[n_filled > 1]  <- "mixed"
+form_class[n_filled == 1] <- form_cols[apply(filled[n_filled == 1, , drop = FALSE], 1, which)]
+
+# Titles van Missing
+missing_form_titles <- df_annotations$title[form_class == "missing"]
+missing_form_titles
+
+# Labels (met Diverse + Mixed samengevoegd)
+form_label <- form_class
+form_label[form_label == "form._visual"]     <- "Visual"
+form_label[form_label == "form._theatre"]    <- "Theatre"
+form_label[form_label == "form._music"]      <- "Music"
+form_label[form_label == "form._multimedia"] <- "Multimedia"
+form_label[form_label == "form._narrative"]  <- "Narrative"
+form_label[form_label == "form._open"]       <- "Open"
+
+# Diverse + Mixed samenvoegen
+form_label[form_label %in% c("form._diverse", "mixed")] <- "Mixed"
+
+# Missing label (voor volledigheid)
+form_label[form_label == "missing"] <- "Missing"
+
+# Tellingen
+form_counts_all <- as.data.frame(table(form_label), stringsAsFactors = FALSE)
+colnames(form_counts_all) <- c("Form", "Count")
+form_counts_all <- form_counts_all[order(form_counts_all$Count, decreasing = TRUE), ]
+form_counts_all
+
+# Figuurdata (Missing uitsluiten)
+form_counts_plot <- subset(form_counts_all, Form != "Missing")
+
+# Zorg voor consistente volgorde (hoog -> laag)
+form_counts_plot$Form <- factor(form_counts_plot$Form,
+                                levels = form_counts_plot$Form[order(form_counts_plot$Count)])
+
+# Figuur met kleurtjes terug
+ggplot(form_counts_plot, aes(x = Form, y = Count, fill = Form)) +
+  geom_col(width = 0.55) +
+  geom_text(aes(label = Count), hjust = -0.2, size = 4.5) +
+  coord_flip() +
+  labs(
+    title = "Art forms",
+    subtitle = "Total counts",
+    x = NULL,
+    y = "Number of studies"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+```{r}
+library(ggplot2)
+
+# -----------------------------------------
+# Disciplines: detectie + classificatie
+# discipline._management toegevoegd
+# - Missing NIET in figuur
+# - Titles van Missing WEL tonen
+# - Figuur met kleurtjes (fill = Discipline)
+# -----------------------------------------
+
+disc_cols <- c(
+  "discipline._sustainability",
+  "discipline._changemanagement",
+  "discipline._innovation",
+  "discipline._leadership",
+  "discipline._accountant",
+  "discipline._marketing",
+  "discipline._organisational",
+  "discipline._economics",
+  "discipline._strategy",
+  "discipline._tourism",
+  "discipline._ICT",
+  "discipline._entrepreneurship",
+  "discipline._supplychain",
+  "discipline._ethics",
+  "discipline._HR",
+  "discipline._management"
+)
+
+# Subset
+sub_disc <- df_annotations[, disc_cols, drop = FALSE]
+
+# TRUE als cel gevuld is (niet NA, niet leeg/spaties)
+filled <- !is.na(sub_disc) & nchar(trimws(as.character(as.matrix(sub_disc)))) > 0
+filled <- matrix(filled, nrow = nrow(df_annotations), dimnames = list(NULL, disc_cols))
+
+# Aantal gevulde disciplines per rij
+n_filled <- rowSums(filled)
+
+# Classificatie per rij
+disc_class <- rep(NA_character_, nrow(df_annotations))
+disc_class[n_filled == 0] <- "missing"
+disc_class[n_filled > 1]  <- "mixed"
+disc_class[n_filled == 1] <- disc_cols[apply(filled[n_filled == 1, , drop = FALSE], 1, which)]
+
+# Titles van Missing
+missing_discipline_titles <- df_annotations$title[disc_class == "missing"]
+missing_discipline_titles
+
+# Labels (leesbaar)
+disc_label <- disc_class
+disc_label[disc_label == "discipline._sustainability"]   <- "Sustainability"
+disc_label[disc_label == "discipline._changemanagement"] <- "Change management"
+disc_label[disc_label == "discipline._innovation"]       <- "Innovation"
+disc_label[disc_label == "discipline._leadership"]       <- "Leadership"
+disc_label[disc_label == "discipline._accountant"]       <- "Accounting"
+disc_label[disc_label == "discipline._marketing"]        <- "Marketing"
+disc_label[disc_label == "discipline._organisational"]   <- "Organisational studies"
+disc_label[disc_label == "discipline._economics"]        <- "Economics"
+disc_label[disc_label == "discipline._strategy"]         <- "Strategy"
+disc_label[disc_label == "discipline._tourism"]          <- "Tourism"
+disc_label[disc_label == "discipline._ICT"]              <- "ICT"
+disc_label[disc_label == "discipline._entrepreneurship"] <- "Entrepreneurship"
+disc_label[disc_label == "discipline._supplychain"]      <- "Supply chain"
+disc_label[disc_label == "discipline._ethics"]           <- "Ethics"
+disc_label[disc_label == "discipline._HR"]               <- "HR"
+disc_label[disc_label == "discipline._management"]       <- "Management"
+
+# Mixed & Missing labels
+disc_label[disc_label == "mixed"]   <- "Mixed"
+disc_label[disc_label == "missing"] <- "Missing"
+
+# Tellingen
+disc_counts_all <- as.data.frame(table(disc_label), stringsAsFactors = FALSE)
+colnames(disc_counts_all) <- c("Discipline", "Count")
+disc_counts_all <- disc_counts_all[order(disc_counts_all$Count, decreasing = TRUE), ]
+disc_counts_all
+
+# Figuurdata (Missing uitsluiten)
+disc_counts_plot <- subset(disc_counts_all, Discipline != "Missing")
+
+# Consistente volgorde (laag -> hoog voor coord_flip)
+disc_counts_plot$Discipline <- factor(
+  disc_counts_plot$Discipline,
+  levels = disc_counts_plot$Discipline[order(disc_counts_plot$Count)]
+)
+
+# Figuur met kleurtjes
+ggplot(disc_counts_plot, aes(x = Discipline, y = Count, fill = Discipline)) +
+  geom_col(width = 0.55) +
+  geom_text(aes(label = Count), hjust = -0.2, size = 4.5) +
+  coord_flip() +
+  labs(
+    title = "Disciplines per study",
+    ,
+    x = NULL,
+    y = "Number of studies"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+
+```
+```{r}
+library(ggplot2)
+
+# -----------------------------------------
+# Disciplines: detectie + classificatie
+# - discipline._arts en discipline._interdisciplinary toegevoegd
+# - Alles wat "mixed" is -> Interdisciplinary
+# - Missing NIET in figuur
+# - Titles van Missing WEL tonen
+# - Figuur met kleurtjes (fill = Discipline)
+# -----------------------------------------
+
+disc_cols <- c(
+  "discipline._sustainability",
+  "discipline._changemanagement",
+  "discipline._innovation",
+  "discipline._leadership",
+  "discipline._accountant",
+  "discipline._marketing",
+  "discipline._organisational",
+  "discipline._economics",
+  "discipline._strategy",
+  "discipline._tourism",
+  "discipline._ICT",
+  "discipline._entrepreneurship",
+  "discipline._supplychain",
+  "discipline._ethics",
+  "discipline._HR",
+  "discipline._management",
+  "discipline._arts",
+  "discipline._interdisciplinairy"
+)
+
+# Subset
+sub_disc <- df_annotations[, disc_cols, drop = FALSE]
+
+# TRUE als cel gevuld is (niet NA, niet leeg/spaties)
+filled <- !is.na(sub_disc) & nchar(trimws(as.character(as.matrix(sub_disc)))) > 0
+filled <- matrix(filled, nrow = nrow(df_annotations), dimnames = list(NULL, disc_cols))
+
+# Aantal gevulde disciplines per rij
+n_filled <- rowSums(filled)
+
+# Classificatie per rij (initieel)
+disc_class <- rep(NA_character_, nrow(df_annotations))
+disc_class[n_filled == 0] <- "missing"
+disc_class[n_filled > 1]  <- "mixed"
+disc_class[n_filled == 1] <- disc_cols[apply(filled[n_filled == 1, , drop = FALSE], 1, which)]
+
+# Alles wat mixed is -> discipline._interdisciplinary
+disc_class[disc_class == "mixed"] <- "discipline._interdisciplinairy"
+
+# Titles van Missing
+missing_discipline_titles <- df_annotations$title[disc_class == "missing"]
+missing_discipline_titles
+
+# Labels (leesbaar)
+disc_label <- disc_class
+disc_label[disc_label == "discipline._sustainability"]     <- "Sustainability"
+disc_label[disc_label == "discipline._changemanagement"]   <- "Change management"
+disc_label[disc_label == "discipline._innovation"]         <- "Innovation"
+disc_label[disc_label == "discipline._leadership"]         <- "Leadership"
+disc_label[disc_label == "discipline._accountant"]         <- "Accounting"
+disc_label[disc_label == "discipline._marketing"]          <- "Marketing"
+disc_label[disc_label == "discipline._organisational"]     <- "Organisational studies"
+disc_label[disc_label == "discipline._economics"]          <- "Economics"
+disc_label[disc_label == "discipline._strategy"]           <- "Strategy"
+disc_label[disc_label == "discipline._tourism"]            <- "Tourism"
+disc_label[disc_label == "discipline._ICT"]                <- "ICT"
+disc_label[disc_label == "discipline._entrepreneurship"]   <- "Entrepreneurship"
+disc_label[disc_label == "discipline._supplychain"]        <- "Supply chain"
+disc_label[disc_label == "discipline._ethics"]             <- "Ethics"
+disc_label[disc_label == "discipline._HR"]                 <- "HR"
+disc_label[disc_label == "discipline._management"]         <- "Management"
+disc_label[disc_label == "discipline._arts"]               <- "Arts"
+disc_label[disc_label == "discipline._interdisciplinairy"]  <- "Interdisciplinary"
+
+# Missing label (voor volledigheid)
+disc_label[disc_label == "missing"] <- "Missing"
+
+# Tellingen
+disc_counts_all <- as.data.frame(table(disc_label), stringsAsFactors = FALSE)
+colnames(disc_counts_all) <- c("Discipline", "Count")
+disc_counts_all <- disc_counts_all[order(disc_counts_all$Count, decreasing = TRUE), ]
+disc_counts_all
+
+# Figuurdata (Missing uitsluiten)
+disc_counts_plot <- subset(disc_counts_all, Discipline != "Missing")
+
+# Consistente volgorde (laag -> hoog voor coord_flip)
+disc_counts_plot$Discipline <- factor(
+  disc_counts_plot$Discipline,
+  levels = disc_counts_plot$Discipline[order(disc_counts_plot$Count)]
+)
+
+# Figuur met kleurtjes
+ggplot(disc_counts_plot, aes(x = Discipline, y = Count, fill = Discipline)) +
+  geom_col(width = 0.55) +
+  geom_text(aes(label = Count), hjust = -0.2, size = 4.5) +
+  coord_flip() +
+  labs(
+    title = "Discipline per study",
+    x = NULL,
+    y = "Number of studies"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+
+########
+
+```{r}
+## =========================================================
+## Subset df_annotations (incl. title & arts categories)
+## + count observations not filled in
+## =========================================================
+
+# Requested columns
+requested_cols <- c(
+  "title",
+  "educational._theory",
+  "learning._outcome",
+  "reason._art",
+  "arts.based",
+  "arts.informed",
+  "arts.related"
+)
+
+# Keep only columns that actually exist
+existing_cols <- intersect(requested_cols, names(df_annotations))
+
+# Warn if any requested columns are missing
+missing_cols <- setdiff(requested_cols, names(df_annotations))
+if (length(missing_cols) > 0) {
+  warning(
+    paste(
+      "These columns are missing from df_annotations:",
+      paste(missing_cols, collapse = ", ")
+    )
+  )
+}
+
+# Create the subset dataframe
+df_case_criteria <- df_annotations[, existing_cols, drop = FALSE]
+
+# ---- Count observations that are NOT filled in ----
+# Definition: NA, empty string, or whitespace only
+missing_counts <- sapply(df_case_criteria, function(x) {
+  sum(is.na(x) | trimws(x) == "")
+})
+
+# Create summary table
+missing_summary <- data.frame(
+  column = names(missing_counts),
+  n_not_filled = as.integer(missing_counts),
+  total_observations = nrow(df_case_criteria),
+  percent_not_filled = round(
+    as.integer(missing_counts) / nrow(df_case_criteria) * 100,
+    1
+  )
+)
+
+# Inspect outputs
+str(df_case_criteria)
+print(missing_summary)
+
+```
+
+
+```{r}
+# Helper: detect text (not NA, not empty, not just spaces)
+has_text <- function(x) {
+  !is.na(x) & nchar(trimws(x)) > 0
+}
+
+# ---- Split dataframes ----
+
+df_arts_based <- df_case_criteria[
+  has_text(df_case_criteria$arts.based),
+  ,
+  drop = FALSE
+]
+
+df_arts_informed <- df_case_criteria[
+  has_text(df_case_criteria$arts.informed),
+  ,
+  drop = FALSE
+]
+
+df_arts_related <- df_case_criteria[
+  has_text(df_case_criteria$arts.related),
+  ,
+  drop = FALSE
+]
+
+# ---- Sanity checks ----
+nrow(df_arts_based)
+nrow(df_arts_informed)
+nrow(df_arts_related)
+
+# ---- Export to CSV ----
+
+write.csv(
+  df_arts_based,
+  "~/Desktop/df_arts_based.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  df_arts_informed,
+  "~/Desktop/df_arts_informed.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  df_arts_related,
+  "~/Desktop/df_arts_related.csv",
+  row.names = FALSE
+)
+
+```
+
+```{r}
+# -----------------------------------------
+# Definitie van art forms
+# -----------------------------------------
+
+form_cols <- c(
+  "form._visual",
+  "form._theatre",
+  "form._diverse",
+  "form._music",
+  "form._multimedia",
+  "form._narrative",
+  "form._open"
+)
+
+# Helper: check of er tekst staat
+has_text <- function(x) {
+  !is.na(x) & nchar(trimws(as.character(x))) > 0
+}
+
+# -----------------------------------------
+# Functie om form-counts per dataset te maken
+# -----------------------------------------
+
+count_forms <- function(df, forms) {
+  sapply(forms, function(f) {
+    sum(has_text(df[[f]]))
+  })
+}
+
+# -----------------------------------------
+# Counts per arts-categorie
+# (uitgaande van je gesplitste dataframes)
+# -----------------------------------------
+
+forms_arts_based <- count_forms(df_arts_based, form_cols)
+forms_arts_informed <- count_forms(df_arts_informed, form_cols)
+forms_arts_related <- count_forms(df_arts_related, form_cols)
+
+# -----------------------------------------
+# Combineer in één overzichtstabel
+# -----------------------------------------
+
+form_comparison <- data.frame(
+  Form = form_cols,
+  Arts_based = forms_arts_based,
+  Arts_informed = forms_arts_informed,
+  Arts_related = forms_arts_related,
+  row.names = NULL
+)
+
+form_comparison
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Helper to clean form names
+form_pretty <- function(x) gsub("^form\\._", "", x)
+
+# Prepare long dataframe
+plot_df <- form_comparison %>%
+  mutate(Form = form_pretty(Form)) %>%
+  pivot_longer(
+    cols = c(Arts_based, Arts_informed, Arts_related),
+    names_to = "Category",
+    values_to = "Count"
+  ) %>%
+  mutate(
+    Category = recode(
+      Category,
+      Arts_based = "Arts-based",
+      Arts_informed = "Arts-informed",
+      Arts_related = "Arts-related"
+    )
+  ) %>%
+  group_by(Category) %>%
+  mutate(
+    Percent = 100 * Count / sum(Count)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Form = factor(Form, levels = rev(unique(Form)))
+  )
+
+# Relative heatmap (percentages)
+ggplot(plot_df, aes(x = Category, y = Form, fill = Percent)) +
+  geom_tile(color = "white", linewidth = 0.6) +
+  geom_text(
+    aes(label = paste0(round(Percent, 1), "%")),
+    size = 4.5
+  ) +
+  scale_fill_gradient(
+    low = "#f7fbff",
+    high = "#08306b"
+  ) +
+  labs(
+    title = "Relative distribution of art forms across modes of artistic integration",
+    subtitle = "Percentages within each category (Arts-based / Arts-informed / Arts-related)",
+    x = NULL,
+    y = NULL,
+    fill = "%"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    panel.grid = element_blank(),
+    plot.title.position = "plot"
+  )
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Helper to clean form names
+form_pretty <- function(x) gsub("^form\\._", "", x)
+
+# Prepare long dataframe with percentages per category
+plot_df <- form_comparison %>%
+  mutate(Form = form_pretty(Form)) %>%
+  pivot_longer(
+    cols = c(Arts_based, Arts_informed, Arts_related),
+    names_to = "Category",
+    values_to = "Count"
+  ) %>%
+  mutate(
+    Category = recode(
+      Category,
+      Arts_based = "Arts-based",
+      Arts_informed = "Arts-informed",
+      Arts_related = "Arts-related"
+    )
+  ) %>%
+  group_by(Category) %>%
+  mutate(
+    Percent = 100 * Count / sum(Count)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    # keep order stable and readable
+    Form = factor(Form, levels = rev(unique(Form))),
+    Category = factor(Category, levels = c("Arts-based", "Arts-informed", "Arts-related"))
+  )
+
+# Heatmap without legend
+ggplot(plot_df, aes(x = Category, y = Form, fill = Percent)) +
+  geom_tile(color = "white", linewidth = 0.6) +
+  geom_text(
+    aes(label = paste0(round(Percent, 1), "%")),
+    size = 4.5,
+    color = "black"
+  ) +
+  scale_fill_gradient(
+    low = "#f7fbff",
+    high = "#08306b",
+    guide = "none"   # removes legend
+  ) +
+  labs(
+    title = "Art forms across modes of artistic integration",
+    subtitle = "Percentages within arts-based, arts-informed and arts-related",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    panel.grid = element_blank(),
+    plot.title.position = "plot",
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13)
+  )
+
+```
+```{r}
+# Helper function: check if a cell contains text
+has_text <- function(x) {
+  !is.na(x) & nchar(trimws(as.character(x))) > 0
+}
+
+# Count per category
+arts_counts <- data.frame(
+  Category = c("Arts-based", "Arts-informed", "Arts-related"),
+  Count = c(
+    sum(has_text(df_annotations$arts.based)),
+    sum(has_text(df_annotations$arts.informed)),
+    sum(has_text(df_annotations$arts.related))
+  )
+)
+
+arts_counts
+
+```
+
+```{r}
+library(ggplot2)
+
+# Helper: check if a cell contains text
+has_text <- function(x) {
+  !is.na(x) & nchar(trimws(as.character(x))) > 0
+}
+
+# Create count table
+arts_counts <- data.frame(
+  Category = c("Arts-based", "Arts-informed", "Arts-related"),
+  Count = c(
+    sum(has_text(df_annotations$arts.based)),
+    sum(has_text(df_annotations$arts.informed)),
+    sum(has_text(df_annotations$arts.related))
+  )
+)
+
+# Plot
+ggplot(arts_counts, aes(x = Category, y = Count, fill = Category)) +
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(label = Count),
+    vjust = -0.4,
+    size = 4.5
+  ) +
+  labs(
+    title = "Art-based approaches",
+    subtitle = "Count",
+    x = NULL,
+    y = "Number of studies"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title.position = "plot"
+  )
+
+
+```
+
+```{r}
+## ================================
+## Count empty rows per column
+## ================================
+
+# 1. Columns of interest
+cols <- c(
+  "reason._art",
+  "educational._theory",
+  "learning._outcome"
+)
+
+# 2. Safety check: do all columns exist?
+missing_cols <- setdiff(cols, names(df))
+if (length(missing_cols) > 0) {
+  stop(
+    paste(
+      "These columns are missing from the dataframe:",
+      paste(missing_cols, collapse = ", ")
+    )
+  )
+}
+
+# 3. Count rows with no content per column
+missing_counts <- sapply(df[cols], function(x) {
+  sum(is.na(x) | trimws(x) == "")
+})
+
+# 4. Put results in a tidy table
+missing_table <- data.frame(
+  column = cols,
+  n_missing = as.integer(missing_counts),
+  total_rows = nrow(df),
+  percent_missing = round(
+    as.integer(missing_counts) / nrow(df) * 100,
+    1
+  )
+)
+
+# 5. Print result
+print(missing_table)
+
+```
+
+```{r}
+
+
+```
+
